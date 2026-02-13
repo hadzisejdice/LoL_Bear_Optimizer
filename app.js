@@ -33,8 +33,8 @@ function normalizeTier(value) {
 }
 function getArcherCoefByTier(tierRaw) {
   const tier = normalizeTier(tierRaw).toUpperCase();
-  if (tier === "T1-T6") return 4.4/1.75;
-  return 4.84/1.75; // T7–TG2, TG3–TG4
+  if (tier === "T1-T6") return 3.4/1.75;
+  return 3.84/1.75; // T7–TG2, TG3–TG4
 }
 
 /* ---------- Closed-form optimum ---------- */
@@ -354,3 +354,4 @@ function wireUp() {
 }
 
 window.addEventListener("DOMContentLoaded", wireUp);
+
