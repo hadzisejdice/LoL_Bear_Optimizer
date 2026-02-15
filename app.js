@@ -34,7 +34,7 @@ function normalizeTier(value) {
 function getArcherCoefByTier(tierRaw) {
   const tier = normalizeTier(tierRaw).toUpperCase();
   if (tier === "T1-T6") return 4.4/3;
-  return 4.84/3; // T7–TG2, TG3–TG4
+  return 2.78/1.40; // T7–TG2, TG3–TG4
 }
 
 /* ---------- Closed-form optimum ---------- */
@@ -44,7 +44,7 @@ function computeExactOptimalFractions(stats, tierRaw) {
   const Aarc = attackFactor(stats.arc_atk, stats.arc_let);
   const KARC = getArcherCoefByTier(tierRaw);
 
-  const alpha = Ainf / 3;
+  const alpha = Ainf / 1.40;
   const beta  = Acav;
   const gamma = KARC * Aarc;
 
@@ -66,7 +66,7 @@ function evaluateForPlot(fin, fcav, farc, stats, tierRaw) {
   const Aarc = attackFactor(stats.arc_atk, stats.arc_let);
   const KARC = getArcherCoefByTier(tierRaw);
 
-  const termInf = (1/3) * Ainf * Math.sqrt(fin);
+  const termInf = (1/1.40) * Ainf * Math.sqrt(fin);
   const termCav = Acav * Math.sqrt(fcav);
   const termArc = KARC * Aarc * Math.sqrt(farc);
 
@@ -352,4 +352,5 @@ function wireUp() {
   computePlots();
   onOptimize();
 }
+
 window.addEventListener("DOMContentLoaded", wireUp);
