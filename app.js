@@ -1,22 +1,30 @@
 /**
- * FINAL — Option‑A multi‑formation builder
- * - Closed-form optimum (Lagrange math)
+ * FINAL — Frakinator‑accurate composition + Option‑A multi‑formation builder
+ * - Closed-form optimum (Lagrange math) with bounds
  * - Plasma heatmap
- * - Option‑A: after rally, spread ARC evenly, then CAV evenly, then fill INF up to cap
+ * - Rally + formations respect composition constraints:
+ *    - INF ∈ [7.5%, 10%]
+ *    - CAV ≥ 10%
+ *    - ARC fills remainder
  *
- * Exact fractions:
+ * Exact fractions (unconstrained):
  *   fin  = α² / (α² + β² + γ²)
  *   fcav = β² / (α² + β² + γ²)
  *   farc = γ² / (α² + β² + γ²)
  *
  * where:
- *   α = Ainf / 3
+ *   α = Ainf / 3    (adjusted below)
  *   β = Acav
  *   γ = K_arc * Aarc
- *      K_arc = (4.4/3) for T1–T6; (4.84/3) for T7–TG2 & TG3–TG4
+ *      K_arc = (4.4/3) for T1–T6; (4.84/3) for T7–TG2 & TG3–TG4  [effective constant encoded]
  *
  * A = (1 + atk/100) * (1 + leth/100)
  */
+
+/* ---------- Global Composition Bounds ---------- */
+const INF_MIN_PCT = 0.075; // 7.5%
+const INF_MAX_PCT = 0.10;  // 10%
+const CAV_MIN_PCT = 0.10;  // 10%
 
 /* ---------- Basic Helpers ---------- */
 function num(id) {
@@ -34,7 +42,42 @@ function normalizeTier(value) {
 function getArcherCoefByTier(tierRaw) {
   const tier = normalizeTier(tierRaw).toUpperCase();
   if (tier === "T1-T6") return 4.4/1.25;
-  return 2.78/1.45; // T7–TG2, TG3–TG4 4.84./3
+  return 2.78/1.45; // T7–TG2, TG3–TG4 4.84/3
+}
+
+/* ---------- Clamp/Project Fractions to Bounds ---------- */
+/**
+ * Enforce:
+ *  - INF ∈ [INF_MIN_PCT, INF_MAX_PCT]
+ *  - CAV ≥ CAV_MIN_PCT
+ *  - ARC = 1 - INF - CAV  (≥ 0; if negative, reduce CAV down to min so ARC hits 0)
+ */
+function enforceCompositionBounds(fin, fcav, farc) {
+  let i = fin, c = fcav, a = farc;
+  // Clamp INF to [min,max]
+  if (i < INF_MIN_PCT) i = INF_MIN_PCT;
+  if (i > INF_MAX_PCT) i = INF_MAX_PCT;
+
+  // Enforce Cav ≥ min
+  if (c < CAV_MIN_PCT) c = CAV_MIN_PCT;
+
+  // Give remainder to Archers
+  a = 1 - i - c;
+
+  // If over-constrained (negative ARC), reduce Cav down to make ARC=0, but not below Cav min
+  if (a < 0) {
+    c = Math.max(CAV_MIN_PCT, 1 - i); // this sets ARC to 0
+    a = 1 - i - c;
+    if (a < 0) { // should not happen with these bounds, but keep safe
+      a = 0;
+      c = 1 - i;
+    }
+  }
+
+  // Final safety clamp
+  const S = i + c + a;
+  if (S <= 0) return { fin: INF_MIN_PCT, fcav: CAV_MIN_PCT, farc: 1 - INF_MIN_PCT - CAV_MIN_PCT };
+  return { fin: i / S, fcav: c / S, farc: a / S };
 }
 
 /* ---------- Closed-form optimum ---------- */
@@ -44,7 +87,7 @@ function computeExactOptimalFractions(stats, tierRaw) {
   const Aarc = attackFactor(stats.arc_atk, stats.arc_let);
   const KARC = getArcherCoefByTier(tierRaw);
 
-  const alpha = Ainf / 1.12;
+  const alpha = Ainf / 1.12; // original tuned constant (was /1.12)
   const beta  = Acav;
   const gamma = KARC * Aarc;
 
@@ -56,14 +99,14 @@ function computeExactOptimalFractions(stats, tierRaw) {
     fcav: b2 / sum,
     farc: g2 / sum,
     weights: { a2, b2, g2, sum }
-  }; 
+  };
 }
 
 /* ---------- Relative damage for coloring (plot only) ---------- */
 function evaluateForPlot(fin, fcav, farc, stats, tierRaw) {
   const Ainf = attackFactor(stats.inf_atk, stats.inf_let);
   const Acav = attackFactor(stats.cav_atk, stats.cav_let);
-  const Aarc = attackFactor(stats.arc_atk, stats  .arc_let);
+  const Aarc = attackFactor(stats.arc_atk, stats.arc_let);
   const KARC = getArcherCoefByTier(tierRaw);
 
   const termInf = (1/1.45) * Ainf * Math.sqrt(fin);
@@ -76,7 +119,7 @@ function evaluateForPlot(fin, fcav, farc, stats, tierRaw) {
 /* ================================================================
    NEW: Editable Composition Helpers (Inf/Cav/Arc)
    ================================================================ */
-let lastBestTriplet = { fin: 0.04, fcav: 0.10, farc: 0.86 }; // default-ish
+let lastBestTriplet = { fin: INF_MIN_PCT, fcav: CAV_MIN_PCT, farc: 1 - INF_MIN_PCT - CAV_MIN_PCT }; // bounded default
 let compUserEdited = false; // if user typed into compInput
 
 function getCompEl() { return document.getElementById("compInput"); }
@@ -84,16 +127,20 @@ function getCompHintEl() { return document.getElementById("compHint"); }
 
 /** Round two and fix the third so ints sum to 100 */
 function roundFractionsTo100(fin, fcav, farc) {
-  // Ensure they sum to 1-ish
   const S = fin + fcav + farc;
   if (S <= 0) return { i: 0, c: 0, a: 100 };
   const nf = fin / S, nc = fcav / S, na = farc / S;
 
   let i = Math.round(nf * 100);
   let c = Math.round(nc * 100);
-  let a = 100 - i - c; // exact sum 100
-  // minor clamping just in case rounding overshoot
-  if (a < 0) { a = 0; if (i + c > 100) { const over = i + c - 100; if (i >= c) i -= over; else c -= over; } }
+  let a = 100 - i - c;
+  if (a < 0) {
+    a = 0;
+    if (i + c > 100) {
+      const over = i + c - 100;
+      if (i >= c) i -= over; else c -= over;
+    }
+  }
   return { i, c, a };
 }
 
@@ -103,10 +150,9 @@ function formatTriplet(fin, fcav, farc) {
   return `${i}/${c}/${a}`;
 }
 
-/** Parse "4/10/85", "4,10,85", "4 10 85". If two numbers, compute third. Normalize to 100%. Returns fractions {fin,fcav,farc} or null if invalid. */
+/** Parse "4/10/85", "4,10,85", "4 10 85". Normalize to 100%. Returns fractions {fin,fcav,farc} or null if invalid. */
 function parseCompToFractions(str) {
   if (typeof str !== "string") return null;
-  // accept / , space ; ignore stray % signs
   const parts = str
     .replace(/%/g, "")
     .trim()
@@ -116,18 +162,15 @@ function parseCompToFractions(str) {
     .map(s => Number(s));
 
   if (parts.some(v => !Number.isFinite(v) || v < 0)) return null;
-
   if (parts.length === 0) return null;
 
   let i = parts[0] ?? 0;
   let c = parts[1] ?? 0;
   let a = (parts.length >= 3) ? parts[2] : Math.max(0, 100 - (i + c));
 
-  // All zero? invalid.
   const sum = i + c + a;
   if (sum <= 0) return null;
 
-  // Normalize to 100%
   const nf = i / sum, nc = c / sum, na = a / sum;
   return { fin: nf, fcav: nc, farc: na };
 }
@@ -138,10 +181,10 @@ function setCompInputFromBest() {
   if (!el) return;
   el.value = formatTriplet(lastBestTriplet.fin, lastBestTriplet.fcav, lastBestTriplet.farc);
   const hint = getCompHintEl();
-  if (hint) hint.textContent = "Auto-filled from Best. Edit to override.";
+  if (hint) hint.textContent = "Auto-filled from Best (bounded). Edit to override.";
 }
 
-/** Decide which fractions to use: user's editable field (normalized), otherwise Best */
+/** Decide which fractions to use: user's editable field (normalized & clamped), otherwise bounded Best */
 function getFractionsForRally() {
   const el = getCompEl();
   const hint = getCompHintEl();
@@ -149,12 +192,19 @@ function getFractionsForRally() {
 
   const parsed = parseCompToFractions(el.value);
   if (parsed) {
-    // Show the normalized final integer display if user input wasn't already in exact 100 sum
-    const disp = formatTriplet(parsed.fin, parsed.fcav, parsed.farc);
-    if (hint) hint.textContent = `Using: ${disp}`;
-    return parsed;
+    const bounded = enforceCompositionBounds(parsed.fin, parsed.fcav, parsed.farc);
+    const disp = formatTriplet(bounded.fin, bounded.fcav, bounded.farc);
+    if (hint) {
+      const orig = formatTriplet(parsed.fin, parsed.fcav, parsed.farc);
+      if (orig !== disp) {
+        hint.textContent = `Using (clamped): ${disp}  ·  (Inf 7.5–10%, Cav ≥ 10%)`;
+      } else {
+        hint.textContent = `Using: ${disp}`;
+      }
+    }
+    return bounded;
   } else {
-    if (hint) hint.textContent = "Invalid input → using Best composition.";
+    if (hint) hint.textContent = "Invalid input → using Best (bounded).";
     return lastBestTriplet;
   }
 }
@@ -171,16 +221,17 @@ function computePlots() {
   };
   const tierRaw = document.getElementById("troopTier").value;
 
-  // 1) Exact best composition (closed-form)
+  // 1) Exact best composition (closed-form), then enforce bounds
   const opt = computeExactOptimalFractions(stats, tierRaw);
-  lastBestTriplet = { fin: opt.fin, fcav: opt.fcav, farc: opt.farc };
+  const bounded = enforceCompositionBounds(opt.fin, opt.fcav, opt.farc);
+  lastBestTriplet = { fin: bounded.fin, fcav: bounded.fcav, farc: bounded.farc };
 
-  // If user didn't edit, auto-fill the editable field from Best
+  // If user didn't edit, auto-fill the editable field from bounded Best
   if (!compUserEdited) {
     setCompInputFromBest();
   }
 
-  // 2) Dense sampling for heat-like background
+  // 2) Dense sampling for heat-like background (unbounded surface for relative view)
   const samples = [];
   const vals = [];
   const steps = 55;
@@ -209,7 +260,7 @@ function computePlots() {
         size: 6,
         opacity: 0.95,
         color: norm,
-        colorscale: "Plasma",   // Purple -> Yellow like the original
+        colorscale: "Plasma",
         reversescale: false,
         colorbar: {title:"Fraction of maximal damage", tickformat: ".2f"}
       },
@@ -219,14 +270,14 @@ function computePlots() {
     {
       type: "scatterternary",
       mode: "markers+text",
-      a: [opt.fin],
-      b: [opt.fcav],
-      c: [opt.farc],
+      a: [bounded.fin],
+      b: [bounded.fcav],
+      c: [bounded.farc],
       marker:{size:14, color:"#10b981"},
-      text:["Best"],
+      text:["Best*"],
       textposition:"top center",
       hovertemplate:
-        "Best (closed-form)<br>Inf: %{a:.2f}<br>Cav: %{b:.2f}<br>Arc: %{c:.2f}<extra></extra>"
+        "Best (bounded)<br>Inf: %{a:.2f}<br>Cav: %{b:.2f}<br>Arc: %{c:.2f}<extra></extra>"
     }
   ], {
     ternary:{
@@ -244,104 +295,162 @@ function computePlots() {
   });
 
   document.getElementById("bestReadout").innerText =
-    `Best composition ≈ ${formatTriplet(opt.fin, opt.fcav, opt.farc)} (Inf/Cav/Arc).`;
+    `Best composition (bounded) ≈ ${formatTriplet(bounded.fin, bounded.fcav, bounded.farc)} (Inf/Cav/Arc) · [Inf 7.5–10%, Cav ≥ 10%].`;
 }
 
-/* ---------- Sum-preserving apportionment with caps (used for rally) ---------- */
-function apportionWithCaps(total, weights, caps) {
-  const keys = Object.keys(weights);
-  const out = Object.fromEntries(keys.map(k=>[k,0]));
-  let active = keys.filter(k => caps[k] > 0 && weights[k] > 0);
-  let remaining = Math.max(0, Math.floor(total));
+/* ---------- Rally build with integer bounds ---------- */
+function buildRally(fractions, rallySize, stock) {
+  if (rallySize <= 0) return {inf:0, cav:0, arc:0};
 
-  while (remaining > 0 && active.length > 0) {
-    const sumW = active.reduce((s,k)=>s+weights[k],0);
-    if (sumW <= 0) break;
+  // Integer min/max based on rally size
+  const iMin = Math.ceil(INF_MIN_PCT * rallySize);
+  const iMax = Math.floor(INF_MAX_PCT * rallySize);
+  const cMin = Math.ceil(CAV_MIN_PCT * rallySize);
 
-    const raw  = Object.fromEntries(active.map(k => [k, remaining * (weights[k]/sumW)]));
-    const base = Object.fromEntries(active.map(k => [k, Math.floor(raw[k])]));
-    let assigned = 0; active.forEach(k=>assigned += base[k]);
-    let rem = remaining - assigned;
+  // Start from bounded fractions, then clamp to integer bounds
+  let iTarget = Math.round(fractions.fin  * rallySize);
+  let cTarget = Math.round(fractions.fcav * rallySize);
+  iTarget = Math.min(Math.max(iTarget, iMin), iMax);
+  if (cTarget < cMin) cTarget = cMin;
 
-    const fracs = active.map(k => ({k, f: raw[k]-base[k]})).sort((a,b)=>b.f-a.f);
-    for (let i=0; i<rem; i++) base[fracs[i % fracs.length].k] += 1;
+  let aTarget = rallySize - iTarget - cTarget;
+  if (aTarget < 0) {
+    // Too much INF+CAV; reduce CAV down to leave ARC=0, but not below cMin
+    cTarget = Math.max(cMin, rallySize - iTarget);
+    aTarget = rallySize - iTarget - cTarget;
+  }
 
-    const stillActive = [];
-    for (const k of active) {
-      const give = Math.min(base[k], caps[k]);
-      out[k] += give;
-      caps[k] -= give;
-      remaining -= give;
-      if (caps[k] > 0 && weights[k] > 0) stillActive.push(k);
+  // Pull from stock; may cause deficit if stock is insufficient
+  let i = Math.min(iTarget, stock.inf);
+  let c = Math.min(cTarget, stock.cav);
+  let a = Math.min(aTarget, stock.arc);
+
+  let placed = i + c + a;
+  let deficit = rallySize - placed;
+
+  // Fill deficit: prefer ARC -> CAV -> INF (INF cannot exceed iMax)
+  if (deficit > 0) {
+    let give = Math.min(deficit, Math.max(0, stock.arc - a));
+    a += give; deficit -= give;
+  }
+  if (deficit > 0) {
+    let give = Math.min(deficit, Math.max(0, stock.cav - c));
+    c += give; deficit -= give;
+  }
+  if (deficit > 0) {
+    let canInf = Math.min(iMax, stock.inf) - i;
+    let give = Math.min(deficit, Math.max(0, canInf));
+    i += give; deficit -= give;
+  }
+
+  // If somehow over-allocated (shouldn't), trim ARC -> CAV -> INF but respect mins
+  let surplus = (i + c + a) - rallySize;
+  if (surplus > 0) {
+    let take = Math.min(surplus, a);
+    a -= take; surplus -= take;
+  }
+  if (surplus > 0) {
+    let minC = Math.min(cMin, c); // keep at least cMin if possible
+    let take = Math.min(surplus, c - minC);
+    c -= take; surplus -= take;
+  }
+  if (surplus > 0) {
+    let minI = Math.min(iMin, i); // keep at least iMin if possible
+    let take = Math.min(surplus, i - minI);
+    i -= take; surplus -= take;
+  }
+
+  // Consume stock
+  stock.inf -= i; stock.cav -= c; stock.arc -= a;
+  return { inf: i, cav: c, arc: a };
+}
+
+/* ---------- Round-robin filler for uneven per-slot caps ---------- */
+function fillRoundRobin(total, caps) {
+  const n = caps.length;
+  const out = Array(n).fill(0);
+  let t = Math.max(0, Math.floor(total));
+  let progress = true;
+  while (t > 0 && progress) {
+    progress = false;
+    for (let i = 0; i < n && t > 0; i++) {
+      if (out[i] < caps[i]) {
+        out[i] += 1;
+        t -= 1;
+        progress = true;
+      }
     }
-    active = stillActive;
   }
   return out;
 }
 
-/* ---------- Rally build: subtracts stock first ---------- */
-function buildRally(fractions, rallySize, stock) {
-  if (rallySize <= 0) return {inf:0, cav:0, arc:0};
-  const weights = { inf: fractions.fin, cav: fractions.fcav, arc: fractions.farc };
-  const caps    = { inf: stock.inf,     cav: stock.cav,      arc: stock.arc };
-  const rally   = apportionWithCaps(rallySize, weights, {...caps});
-  stock.inf -= rally.inf; stock.cav -= rally.cav; stock.arc -= rally.arc;
-  return rally;
-}
-
-/* ---------- Even distributions & infantry fill ---------- */
-function distributeEven(total, n, capPerSlot) {
-  total = Math.max(0, Math.floor(total));
-  const per = Math.min(Math.floor(total / n), capPerSlot);
-  return Array(n).fill(per);
-}
-function distributeInf(leftInf, arcAlloc, cavAlloc, cap) {
-  const n = arcAlloc.length;
-  const infAlloc = Array(n).fill(0);
-  let remaining = Math.max(0, Math.floor(leftInf));
-  for (let i=0;i<n;i++){
-    const free = Math.max(0, cap - arcAlloc[i] - cavAlloc[i]);
-    if (free <= 0) { infAlloc[i] = 0; continue; }
-    const ideal = Math.floor(remaining / (n - i));
-    const give  = Math.min(ideal, free);
-    infAlloc[i] = give;
-    remaining  -= give;
-  }
-  return infAlloc;
-}
-
-/* ---------- Option‑A formations ---------- */
+/* ---------- Option‑A formations with constraints per march ---------- */
 function buildOptionAFormations(stock, formations, cap) {
   const n = Math.max(1, formations);
 
-  // A) Archers evenly (capped)
-  const arcAlloc = distributeEven(stock.arc, n, cap);
-  const usedArc  = arcAlloc.reduce((s,x)=>s+x,0);
-  const leftArc  = stock.arc - usedArc;
+  const infMinPer = Math.ceil(INF_MIN_PCT * cap);
+  const infMaxPer = Math.floor(INF_MAX_PCT * cap);
+  const cavMinPer = Math.ceil(CAV_MIN_PCT * cap);
 
-  // B) Cavalry evenly (respect remaining capacity after archers)
-  const spaceAfterArc = Math.max(0, cap - arcAlloc[0]); // equal per march
-  const cavAlloc = distributeEven(stock.cav, n, spaceAfterArc);
-  const usedCav  = cavAlloc.reduce((s,x)=>s+x,0);
-  const leftCav  = stock.cav - usedCav;
+  const infAlloc = Array(n).fill(0);
+  const cavAlloc = Array(n).fill(0);
+  const arcAlloc = Array(n).fill(0);
 
-  // C) Infantry fill to cap
-  const infAlloc = distributeInf(stock.inf, arcAlloc, cavAlloc, cap);
-  const usedInf  = infAlloc.reduce((s,x)=>s+x,0);
-  const leftInf  = stock.inf - usedInf;
+  // Stage 0: Reserve minima per march (as much as stock allows)
+  for (let i = 0; i < n; i++) {
+    const free = cap;
+    // INF min
+    if (free > 0) {
+      const giveInf = Math.min(infMinPer, stock.inf, free);
+      infAlloc[i] += giveInf; stock.inf -= giveInf;
+    }
+    // CAV min
+    const free2 = cap - infAlloc[i];
+    if (free2 > 0) {
+      const giveCav = Math.min(cavMinPer, stock.cav, free2);
+      cavAlloc[i] += giveCav; stock.cav -= giveCav;
+    }
+  }
 
-  const leftover = { inf: leftInf, cav: leftCav, arc: leftArc };
+  // Stage 1: Fill Archers evenly into remaining capacity
+  const arcCaps = Array(n).fill(0).map((_, i) => Math.max(0, cap - infAlloc[i] - cavAlloc[i]));
+  const arcGive = fillRoundRobin(stock.arc, arcCaps);
+  for (let i = 0; i < n; i++) {
+    arcAlloc[i] += arcGive[i];
+    stock.arc -= arcGive[i];
+  }
+
+  // Stage 2: Fill Cavalry evenly into any remaining capacity
+  const cavCaps = Array(n).fill(0).map((_, i) => Math.max(0, cap - infAlloc[i] - cavAlloc[i] - arcAlloc[i]));
+  const cavGive = fillRoundRobin(stock.cav, cavCaps);
+  for (let i = 0; i < n; i++) {
+    cavAlloc[i] += cavGive[i];
+    stock.cav -= cavGive[i];
+  }
+
+  // Stage 3: Fill Infantry up to per-march max (even), into any remaining capacity
+  const infCaps = Array(n).fill(0).map((_, i) => {
+    const capLeft = Math.max(0, cap - infAlloc[i] - cavAlloc[i] - arcAlloc[i]);
+    const roomToMax = Math.max(0, infMaxPer - infAlloc[i]);
+    return Math.min(capLeft, roomToMax);
+  });
+  const infGive = fillRoundRobin(stock.inf, infCaps);
+  for (let i = 0; i < n; i++) {
+    infAlloc[i] += infGive[i];
+    stock.inf -= infGive[i];
+  }
 
   const packs = [];
-  for (let i=0;i<n;i++){
+  for (let i = 0; i < n; i++) {
     packs.push({ inf: infAlloc[i], cav: cavAlloc[i], arc: arcAlloc[i] });
   }
+  const leftover = { inf: stock.inf, cav: stock.cav, arc: stock.arc };
   return { packs, leftover };
 }
 
 /* ---------- UI: Optimizer handler (Option‑A) ---------- */
 function onOptimize() {
-  // 1) Stats + exact fractions (Best)
+  // 1) Stats + exact fractions (Best → bounded)
   const stats = {
     inf_atk: num("inf_atk"),
     inf_let: num("inf_let"),
@@ -352,17 +461,18 @@ function onOptimize() {
   };
   const tierRaw = document.getElementById("troopTier").value;
   const opt = computeExactOptimalFractions(stats, tierRaw);
-  lastBestTriplet = { fin: opt.fin, fcav: opt.fcav, farc: opt.farc };
+  const bounded = enforceCompositionBounds(opt.fin, opt.fcav, opt.farc);
+  lastBestTriplet = { fin: bounded.fin, fcav: bounded.fcav, farc: bounded.farc };
 
-  // 2) Use editable composition (or Best if invalid)
+  // 2) Use editable composition (normalized & clamped) or bounded Best
   const usedFractions = getFractionsForRally();
 
   // Update readout
   const usedDisp = formatTriplet(usedFractions.fin, usedFractions.fcav, usedFractions.farc);
-  const bestDisp = formatTriplet(opt.fin, opt.fcav, opt.farc);
+  const bestDisp = formatTriplet(bounded.fin, bounded.fcav, bounded.farc);
   const fracEl = document.getElementById("fractionReadout");
   if (fracEl) fracEl.innerText =
-    `Target fractions (Inf/Cav/Arc): ${usedDisp}   ·   Best: ${bestDisp}`;
+    `Target fractions (bounded · Inf 7.5–10%, Cav ≥ 10%): ${usedDisp}   ·   Best: ${bestDisp}`;
 
   // 3) Inventory + settings
   const stock = {
@@ -376,12 +486,12 @@ function onOptimize() {
 
   const totalAvailBefore = stock.inf + stock.cav + stock.arc;
 
-  // 4) Build rally first (consumes stock) — uses the EDITABLE composition
+  // 4) Build rally first (consumes stock) — uses the EDITABLE composition (bounded already)
   const rally = buildRally(usedFractions, rallySize, stock);
   const rallyTotal = rally.inf + rally.cav + rally.arc;
 
-  // 5) Build formations with Option‑A
-  const { packs, leftover } = buildOptionAFormations({...stock}, formations, cap);
+  // 5) Build formations with Option‑A (bounded per-march)
+  const { packs, leftover } = buildOptionAFormations({ ...stock }, formations, cap);
 
   // 6) Render table (with CALL RALLY row if >0)
   let html = `<table><thead>
@@ -432,7 +542,7 @@ function onOptimize() {
 
   const invEl = document.getElementById("inventoryReadout");
   if (invEl) {
-    invEl.style.whiteSpace = "pre-line"; // alignment/readability
+    invEl.style.whiteSpace = "pre-line";
     invEl.innerText = msgParts.join("\n\n");
   }
 }
