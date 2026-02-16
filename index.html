@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Bear LoL App – Kingshot Battle Simulator</title>
+  <title>#1079 LoL App – Kingshot Bear Optimizer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- Plotly (correct tag) -->
@@ -43,6 +43,10 @@
       border:0; border-radius:8px; color:white; font-size:1rem; cursor:pointer;
     }
     button:hover{ background:var(--accent-2) }
+    /* small inline buttons */
+    .inline-btn{
+      width:auto; padding:10px 12px; margin-top:0;
+    }
     #ternaryPlot{ width:100%; height:650px }
     .muted{ color:var(--muted) }
     table{ width:100%; border-collapse:collapse; margin-top:12px; background:#171b22; border-radius:8px; overflow:hidden; }
@@ -57,7 +61,7 @@
 <body>
 
 <header class="container">
-  <h1>Bear LoL App – Kingshot Bear Optimizer</h1>
+  <h1>#1079 LoL App – Kingshot Bear Optimizer</h1>
 </header>
 
 <main class="container">
@@ -70,7 +74,7 @@
       <div>
         <h3>Infantry</h3>
         <label>Attack (%)</label>
-        <input id="inf_atk" type="number" step="0.1" value="465.8">
+        <input id="inf_atk" type="number" step="0.1" value="481.6">
         <label>Lethality (%)</label>
         <input id="inf_let" type="number" step="0.1" value="284.4">
       </div>
@@ -78,15 +82,15 @@
       <div>
         <h3>Cavalry</h3>
         <label>Attack (%)</label>
-        <input id="cav_atk" type="number" step="0.1" value="473.2">
+        <input id="cav_atk" type="number" step="0.1" value="493.1">
         <label>Lethality (%)</label>
-        <input id="cav_let" type="number" step="0.1" value="307.4">
+        <input id="cav_let" type="number" step="0.1" value="311.8">
       </div>
 
       <div>
         <h3>Archery</h3>
         <label>Attack (%)</label>
-        <input id="arc_atk" type="number" step="0.1" value="488.1">
+        <input id="arc_atk" type="number" step="0.1" value="508.8">
         <label>Lethality (%)</label>
         <input id="arc_let" type="number" step="0.1" value="479.7">
       </div>
@@ -113,21 +117,34 @@
   <section class="panel">
     <h2>Call / Join Rally ‑ Formation Optimizer</h2>
 
+    <!-- NEW: Editable composition field used for rally -->
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:6px 0 12px">
+      <div style="min-width:240px; flex:1 0 240px">
+        <label for="compInput">Composition to use for Rally (Inf/Cav/Arc)</label>
+        <input id="compInput" type="text" inputmode="numeric" placeholder="Inf/Cav/Arc e.g. 4/10/85">
+      </div>
+      <div>
+        <label style="visibility:hidden">.</label>
+        <button id="btnUseBest" class="inline-btn">Use Best</button>
+      </div>
+      <div class="muted" id="compHint" style="min-height:1em"></div>
+    </div>
+
     <div class="grid stock-grid">
       <div>
         <h3>Your available troops</h3>
         <label>Infantry available</label>
-        <input id="stockInf" type="number" step="1" min="0" value="200000">
+        <input id="stockInf" type="number" step="1" min="0" value="200653">
         <label>Cavalry available</label>
-        <input id="stockCav" type="number" step="1" min="0" value="150000">
+        <input id="stockCav" type="number" step="1" min="0" value="180269">
         <label>Archers available</label>
-        <input id="stockArc" type="number" step="1" min="0" value="200000">
+        <input id="stockArc" type="number" step="1" min="0" value="301619">
       </div>
 
       <div>
         <h3>Formation settings</h3>
         <label>Call rally size</label>
-        <input id="rallySize" type="number" step="1" min="0" value="120000">
+        <input id="rallySize" type="number" step="1" min="0" value="134850">
         <label>Join size limit</label>
         <input id="marchSize" type="number" step="1" min="1000" value="65000">
         <label># of marches you have</label>
