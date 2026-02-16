@@ -1,5 +1,5 @@
 /**
- * FINAL — Frakinator‑accurate composition + Option‑A multi‑formation builder
+ * FINAL — Option‑A multi‑formation builder
  * - Closed-form optimum (Lagrange math)
  * - Plasma heatmap
  * - Option‑A: after rally, spread ARC evenly, then CAV evenly, then fill INF up to cap
@@ -33,8 +33,8 @@ function normalizeTier(value) {
 }
 function getArcherCoefByTier(tierRaw) {
   const tier = normalizeTier(tierRaw).toUpperCase();
-  if (tier === "T1-T6") return 4.4/3;
-  return 2.78/1.40; // T7–TG2, TG3–TG4
+  if (tier === "T1-T6") return 4.4/1.25;
+  return 2.78/1.45; // T7–TG2, TG3–TG4 4.84./3
 }
 
 /* ---------- Closed-form optimum ---------- */
@@ -44,7 +44,7 @@ function computeExactOptimalFractions(stats, tierRaw) {
   const Aarc = attackFactor(stats.arc_atk, stats.arc_let);
   const KARC = getArcherCoefByTier(tierRaw);
 
-  const alpha = Ainf / 1.40;
+  const alpha = Ainf / 1.12;
   const beta  = Acav;
   const gamma = KARC * Aarc;
 
@@ -56,21 +56,107 @@ function computeExactOptimalFractions(stats, tierRaw) {
     fcav: b2 / sum,
     farc: g2 / sum,
     weights: { a2, b2, g2, sum }
-  };
+  }; 
 }
 
 /* ---------- Relative damage for coloring (plot only) ---------- */
 function evaluateForPlot(fin, fcav, farc, stats, tierRaw) {
   const Ainf = attackFactor(stats.inf_atk, stats.inf_let);
   const Acav = attackFactor(stats.cav_atk, stats.cav_let);
-  const Aarc = attackFactor(stats.arc_atk, stats.arc_let);
+  const Aarc = attackFactor(stats.arc_atk, stats  .arc_let);
   const KARC = getArcherCoefByTier(tierRaw);
 
-  const termInf = (1/1.40) * Ainf * Math.sqrt(fin);
+  const termInf = (1/1.45) * Ainf * Math.sqrt(fin);
   const termCav = Acav * Math.sqrt(fcav);
   const termArc = KARC * Aarc * Math.sqrt(farc);
 
   return termInf + termCav + termArc;
+}
+
+/* ================================================================
+   NEW: Editable Composition Helpers (Inf/Cav/Arc)
+   ================================================================ */
+let lastBestTriplet = { fin: 0.04, fcav: 0.10, farc: 0.86 }; // default-ish
+let compUserEdited = false; // if user typed into compInput
+
+function getCompEl() { return document.getElementById("compInput"); }
+function getCompHintEl() { return document.getElementById("compHint"); }
+
+/** Round two and fix the third so ints sum to 100 */
+function roundFractionsTo100(fin, fcav, farc) {
+  // Ensure they sum to 1-ish
+  const S = fin + fcav + farc;
+  if (S <= 0) return { i: 0, c: 0, a: 100 };
+  const nf = fin / S, nc = fcav / S, na = farc / S;
+
+  let i = Math.round(nf * 100);
+  let c = Math.round(nc * 100);
+  let a = 100 - i - c; // exact sum 100
+  // minor clamping just in case rounding overshoot
+  if (a < 0) { a = 0; if (i + c > 100) { const over = i + c - 100; if (i >= c) i -= over; else c -= over; } }
+  return { i, c, a };
+}
+
+/** Format fractions (0..1 each) as "X/Y/Z" percentages */
+function formatTriplet(fin, fcav, farc) {
+  const { i, c, a } = roundFractionsTo100(fin, fcav, farc);
+  return `${i}/${c}/${a}`;
+}
+
+/** Parse "4/10/85", "4,10,85", "4 10 85". If two numbers, compute third. Normalize to 100%. Returns fractions {fin,fcav,farc} or null if invalid. */
+function parseCompToFractions(str) {
+  if (typeof str !== "string") return null;
+  // accept / , space ; ignore stray % signs
+  const parts = str
+    .replace(/%/g, "")
+    .trim()
+    .split(/[/,\s]+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(s => Number(s));
+
+  if (parts.some(v => !Number.isFinite(v) || v < 0)) return null;
+
+  if (parts.length === 0) return null;
+
+  let i = parts[0] ?? 0;
+  let c = parts[1] ?? 0;
+  let a = (parts.length >= 3) ? parts[2] : Math.max(0, 100 - (i + c));
+
+  // All zero? invalid.
+  const sum = i + c + a;
+  if (sum <= 0) return null;
+
+  // Normalize to 100%
+  const nf = i / sum, nc = c / sum, na = a / sum;
+  return { fin: nf, fcav: nc, farc: na };
+}
+
+/** Update the UI input with Best triplet unless user has edited */
+function setCompInputFromBest() {
+  const el = getCompEl();
+  if (!el) return;
+  el.value = formatTriplet(lastBestTriplet.fin, lastBestTriplet.fcav, lastBestTriplet.farc);
+  const hint = getCompHintEl();
+  if (hint) hint.textContent = "Auto-filled from Best. Edit to override.";
+}
+
+/** Decide which fractions to use: user's editable field (normalized), otherwise Best */
+function getFractionsForRally() {
+  const el = getCompEl();
+  const hint = getCompHintEl();
+  if (!el) return lastBestTriplet;
+
+  const parsed = parseCompToFractions(el.value);
+  if (parsed) {
+    // Show the normalized final integer display if user input wasn't already in exact 100 sum
+    const disp = formatTriplet(parsed.fin, parsed.fcav, parsed.farc);
+    if (hint) hint.textContent = `Using: ${disp}`;
+    return parsed;
+  } else {
+    if (hint) hint.textContent = "Invalid input → using Best composition.";
+    return lastBestTriplet;
+  }
 }
 
 /* ---------- Plot ---------- */
@@ -87,6 +173,12 @@ function computePlots() {
 
   // 1) Exact best composition (closed-form)
   const opt = computeExactOptimalFractions(stats, tierRaw);
+  lastBestTriplet = { fin: opt.fin, fcav: opt.fcav, farc: opt.farc };
+
+  // If user didn't edit, auto-fill the editable field from Best
+  if (!compUserEdited) {
+    setCompInputFromBest();
+  }
 
   // 2) Dense sampling for heat-like background
   const samples = [];
@@ -152,7 +244,7 @@ function computePlots() {
   });
 
   document.getElementById("bestReadout").innerText =
-    `Best composition ≈ ${Math.round(opt.fin*100)}/${Math.round(opt.fcav*100)}/${Math.round(opt.farc*100)} (Inf/Cav/Arc).`;
+    `Best composition ≈ ${formatTriplet(opt.fin, opt.fcav, opt.farc)} (Inf/Cav/Arc).`;
 }
 
 /* ---------- Sum-preserving apportionment with caps (used for rally) ---------- */
@@ -188,10 +280,10 @@ function apportionWithCaps(total, weights, caps) {
 }
 
 /* ---------- Rally build: subtracts stock first ---------- */
-function buildRally(opt, rallySize, stock) {
+function buildRally(fractions, rallySize, stock) {
   if (rallySize <= 0) return {inf:0, cav:0, arc:0};
-  const weights = { inf: opt.fin, cav: opt.fcav, arc: opt.farc };
-  const caps    = { inf: stock.inf, cav: stock.cav, arc: stock.arc };
+  const weights = { inf: fractions.fin, cav: fractions.fcav, arc: fractions.farc };
+  const caps    = { inf: stock.inf,     cav: stock.cav,      arc: stock.arc };
   const rally   = apportionWithCaps(rallySize, weights, {...caps});
   stock.inf -= rally.inf; stock.cav -= rally.cav; stock.arc -= rally.arc;
   return rally;
@@ -249,7 +341,7 @@ function buildOptionAFormations(stock, formations, cap) {
 
 /* ---------- UI: Optimizer handler (Option‑A) ---------- */
 function onOptimize() {
-  // 1) Stats + exact fractions
+  // 1) Stats + exact fractions (Best)
   const stats = {
     inf_atk: num("inf_atk"),
     inf_let: num("inf_let"),
@@ -260,15 +352,19 @@ function onOptimize() {
   };
   const tierRaw = document.getElementById("troopTier").value;
   const opt = computeExactOptimalFractions(stats, tierRaw);
+  lastBestTriplet = { fin: opt.fin, fcav: opt.fcav, farc: opt.farc };
 
-  const finPct  = Math.round(opt.fin * 100);
-  const fcavPct = Math.round(opt.fcav * 100);
-  const farcPct = Math.round(opt.farc * 100);
+  // 2) Use editable composition (or Best if invalid)
+  const usedFractions = getFractionsForRally();
+
+  // Update readout
+  const usedDisp = formatTriplet(usedFractions.fin, usedFractions.fcav, usedFractions.farc);
+  const bestDisp = formatTriplet(opt.fin, opt.fcav, opt.farc);
   const fracEl = document.getElementById("fractionReadout");
   if (fracEl) fracEl.innerText =
-    `Target fractions (Inf/Cav/Arc): ${finPct}/${fcavPct}/${farcPct}`;
+    `Target fractions (Inf/Cav/Arc): ${usedDisp}   ·   Best: ${bestDisp}`;
 
-  // 2) Inventory + settings
+  // 3) Inventory + settings
   const stock = {
     inf: Math.max(0, Math.floor(num("stockInf"))),
     cav: Math.max(0, Math.floor(num("stockCav"))),
@@ -276,18 +372,18 @@ function onOptimize() {
   };
   const cap        = Math.max(1, Math.floor(num("marchSize")));   // per formation cap
   const formations = Math.max(1, Math.floor(num("numFormations")));
-  const rallySize  = Math.max(0, Math.floor(num("rallySize")));    // NEW real field
+  const rallySize  = Math.max(0, Math.floor(num("rallySize")));    // real field
 
   const totalAvailBefore = stock.inf + stock.cav + stock.arc;
 
-  // 3) Build rally first (consumes stock)
-  const rally = buildRally(opt, rallySize, stock);
+  // 4) Build rally first (consumes stock) — uses the EDITABLE composition
+  const rally = buildRally(usedFractions, rallySize, stock);
   const rallyTotal = rally.inf + rally.cav + rally.arc;
 
-  // 4) Build formations with Option‑A
+  // 5) Build formations with Option‑A
   const { packs, leftover } = buildOptionAFormations({...stock}, formations, cap);
 
-  // 5) Render table (with CALL RALLY row if >0)
+  // 6) Render table (with CALL RALLY row if >0)
   let html = `<table><thead>
   <tr>
       <th>Type</th>
@@ -320,7 +416,7 @@ function onOptimize() {
   const tableEl = document.getElementById("optTableWrap");
   if (tableEl) tableEl.innerHTML = html;
 
-  // 6) Summary (aligned, multiline)
+  // 7) Summary (aligned, multiline)
   const formedTroops = packs.reduce((s,p)=>s + p.inf + p.cav + p.arc, 0);
   const totalUsed = (totalAvailBefore - (leftover.inf+leftover.cav+leftover.arc));
 
@@ -344,13 +440,29 @@ function onOptimize() {
 /* ---------- Init ---------- */
 function wireUp() {
   const btnPlot = document.getElementById("btnPlot");
-  if (btnPlot) btnPlot.addEventListener("click", computePlots);
+  if (btnPlot) btnPlot.addEventListener("click", () => { computePlots(); onOptimize(); });
 
   const btnOpt = document.getElementById("btnOptimize");
   if (btnOpt) btnOpt.addEventListener("click", onOptimize);
 
+  const compEl = getCompEl();
+  if (compEl) {
+    compEl.addEventListener("input", () => {
+      compUserEdited = true;
+      onOptimize(); // live update table as you type
+    });
+  }
+  const btnBest = document.getElementById("btnUseBest");
+  if (btnBest) {
+    btnBest.addEventListener("click", () => {
+      compUserEdited = false;
+      setCompInputFromBest();
+      onOptimize();
+    });
+  }
+
+  // Initial render
   computePlots();
   onOptimize();
 }
-
 window.addEventListener("DOMContentLoaded", wireUp);
