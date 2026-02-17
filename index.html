@@ -66,6 +66,16 @@
     .btn-green:hover {
         background-color: #157347;
     }
+    /* Pulse animation for Use Recommended button */
+    @keyframes pulseGreen {
+        0%   { box-shadow: 0 0 0px rgba(16,185,129, 0.0); }
+        50%  { box-shadow: 0 0 14px rgba(16,185,129, 0.8); }
+        100% { box-shadow: 0 0 0px rgba(16,185,129, 0.0); }
+    }
+
+    .pulse-recommended {
+        animation: pulseGreen 1.4s ease-in-out 0s 30; /* pulses twice */
+    }
   </style>
 </head>
 <body>
@@ -135,7 +145,7 @@
       </div>
       <div>
         <label style="visibility:hidden">.</label>
-        <button id="btnUseBest" class="inline-btn btn-green">Use Recommended</button>
+        <button id="btnUseBest" class="inline-btn btn-green">🔥Use Best</button>
       </div>
       <div class="muted" id="compHint" style="min-height:1em"></div>
     </div>
@@ -144,11 +154,11 @@
       <div>
         <h3>Your available troops</h3>
         <label>Infantry available</label>
-        <input id="stockInf" type="number" step="1" min="0" value="200653">
+        <input id="stockInf" type="number" step="1" min="0" value="202566">
         <label>Cavalry available</label>
-        <input id="stockCav" type="number" step="1" min="0" value="180269">
+        <input id="stockCav" type="number" step="1" min="0" value="183536">
         <label>Archers available</label>
-        <input id="stockArc" type="number" step="1" min="0" value="301619">
+        <input id="stockArc" type="number" step="1" min="0" value="204719">
       </div>
 
       <div>
@@ -166,7 +176,7 @@
                     <div style="font-weight:600; font-size:1rem;">Recommended marches</div>
                     <div id="recommendedDisplay" class="muted" style="margin-top:4px;">…</div>
                 </div>
-                <button id="btnUseRecommended" class="inline-btn btn-green" style="white-space:nowrap;">Use Recommended</button>
+                <button id="btnUseRecommended" class="inline-btn btn-green" style="white-space:nowrap;">🔥Use Recommended</button>
             </div>
         </div>
 
