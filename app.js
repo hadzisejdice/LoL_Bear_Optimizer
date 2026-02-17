@@ -1,3 +1,7 @@
+/**
+ * FINAL — Option‑A multi‑formation builder
+ * Includes Recommended March system
+ */
 
 /* ---------- Global Composition Bounds ---------- */
 const INF_MIN_PCT = 0.075;
@@ -408,28 +412,27 @@ function buildOptionAFormations(stock, formations, cap) {
   return { packs, leftover: { inf:stock.inf, cav:stock.cav, arc:stock.arc } };
 }
 /* ============================================================
-   RECOMMENDED MARCH COUNT SYSTEM
+   RECOMMENDED MARCH COUNT SYSTEM — Updated for 92.3% threshold
    ============================================================ */
 
-// Treat totals within 1 troop of cap as "full" to avoid rounding traps
-function isFull(total, cap) {
-  return total >= cap - 1; // 1 troop tolerance
+// A march is "good" if it reaches at least 92.3% of cap
+function meetsTargetFill(fill) {
+    return fill >= 0.923;
 }
 
 function simulateMarchCount(marchCount, fractions, rallySize, joinCap, stockOriginal) {
-  // Clone stock, build rally (consumes), then build formations
   const stockAfterRally = { ...stockOriginal };
   const rally = buildRally(fractions, rallySize, stockAfterRally);
 
   const result = buildOptionAFormations({ ...stockAfterRally }, marchCount, joinCap);
-  const { packs, leftover } = result; // <-- use leftover from builder
+  const { packs, leftover } = result;
 
   const totals = packs.map(p => p.inf + p.cav + p.arc);
   const fills  = totals.map(t => t / joinCap);
 
   const minFill   = totals.length ? Math.min(...fills) : 0;
-  const avgFill   = totals.length ? fills.reduce((a,b) => a+b, 0) / fills.length : 0;
-  const fullCount = totals.filter(t => isFull(t, joinCap)).length;
+  const avgFill   = totals.length ? fills.reduce((a,b)=>a+b, 0) / fills.length : 0;
+  const fullCount = fills.filter(f => meetsTargetFill(f)).length;
 
   return {
     marchCount,
@@ -441,16 +444,16 @@ function simulateMarchCount(marchCount, fractions, rallySize, joinCap, stockOrig
   };
 }
 
-// New scoring: # of full-cap marches dominates everything.
+// Scoring updated to use 92.3% threshold
 function computeRecommendationScore(fullCount, minFill, avgFill, leftover) {
   const totalLeft  = leftover.inf + leftover.cav + leftover.arc;
   const cavPenalty = leftover.cav * 3;
 
   return (
-    fullCount * 1e9 +  // primary: more full marches
-    minFill   * 1e6 +  // secondary: don't underfill any slot badly
-    avgFill   * 1e3 -  // tertiary: pack them well overall
-    (totalLeft + cavPenalty) // minimize leftovers (cav weighted)
+    fullCount * 1e9 +           // # of acceptable-to-send marches
+    (minFill * 0.923) * 1e6 +   // hitting threshold weighted
+    avgFill * 1e3 -             // smoother distribution preferred
+    (totalLeft + cavPenalty)    // penalize waste and cav excess
   );
 }
 
@@ -480,10 +483,30 @@ function updateRecommendedDisplay() {
 
   const best = computeRecommendedMarches(maxMarches, fractions, rallySize, joinCap, stock);
 
-  window.__recommendedMarches = best.marchCount;
+  // Detect changes (old -> new)
+  const oldValue = window.__recommendedMarches;
+  const newValue = best.marchCount;
 
   recommendedEl.textContent =
-    `Recommended: ${best.marchCount} marches (min fill ${(best.minFill*100).toFixed(1)}%)`;
+      `Best: ${newValue} marches (min fill ${(best.minFill*100).toFixed(1)}%)`;
+
+  // Update global cache
+  window.__recommendedMarches = newValue;
+
+  // Pulse only when recommended value changed
+  const btn = document.getElementById("btnUseRecommended");
+  if (btn && oldValue !== undefined && oldValue !== newValue) {
+      btn.classList.remove("pulse-recommended");      // reset if active
+      void btn.offsetWidth;                           // force reflow to restart animation
+      btn.classList.add("pulse-recommended");
+  }
+    // Pulse only when best value changed
+  const btn2 = document.getElementById("btnUseBest");
+  if (btn2 && oldValue !== undefined && oldValue !== newValue) {
+      btn2.classList.remove("pulse-recommended");      // reset if active
+      void btn2.offsetWidth;                           // force reflow to restart animation
+      btn2.classList.add("pulse-recommended");
+  }
 }
 
 /* ============================================================
