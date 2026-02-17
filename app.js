@@ -417,7 +417,7 @@ function buildOptionAFormations(stock, formations, cap) {
 
 // A march is "good" if it reaches at least 92.3% of cap
 function meetsTargetFill(fill) {
-    return fill >= 0.923;
+    return fill >= 0.822;
 }
 
 function simulateMarchCount(marchCount, fractions, rallySize, joinCap, stockOriginal) {
@@ -444,14 +444,14 @@ function simulateMarchCount(marchCount, fractions, rallySize, joinCap, stockOrig
   };
 }
 
-// Scoring updated to use 92.3% threshold
+// Scoring updated to use 82.2% threshold
 function computeRecommendationScore(fullCount, minFill, avgFill, leftover) {
   const totalLeft  = leftover.inf + leftover.cav + leftover.arc;
   const cavPenalty = leftover.cav * 3;
 
   return (
     fullCount * 1e9 +           // # of acceptable-to-send marches
-    (minFill * 0.923) * 1e6 +   // hitting threshold weighted
+    (minFill * 0.822) * 1e6 +   // hitting threshold weighted
     avgFill * 1e3 -             // smoother distribution preferred
     (totalLeft + cavPenalty)    // penalize waste and cav excess
   );
@@ -674,3 +674,4 @@ function wireUp() {
 }
 
 window.addEventListener("DOMContentLoaded", wireUp);
+
