@@ -55,7 +55,17 @@
     tr:last-child td{ border-bottom:0; }
     .pill{ display:inline-block; padding:2px 8px; background:#0f172a; border:1px solid #334155; border-radius:999px; font-size:.9rem; }
     /* Improve inventory text alignment */
-    #inventoryReadout { white-space: pre-line; }
+    #inventoryReadout { white-space: pre-line; }  
+    .recommended-box {
+        box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    .btn-green {
+        background-color: #198754;
+    }
+
+    .btn-green:hover {
+        background-color: #157347;
+    }
   </style>
 </head>
 <body>
@@ -149,7 +159,18 @@
         <input id="marchSize" type="number" step="1" min="1000" value="65000">
         <label># of marches you have</label>
         <input id="numFormations" type="number" step="1" min="1" value="6">
-        <button id="btnOptimize">Optimize split</button>
+
+        <div class="recommended-box" style="margin-top:12px; padding:12px; background:#131821; border:1px solid #2d3340; border-radius:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <div style="font-weight:600; font-size:1rem;">Recommended marches</div>
+                    <div id="recommendedDisplay" class="muted" style="margin-top:4px;">…</div>
+                </div>
+                <button id="btnUseRecommended" class="inline-btn btn-green" style="white-space:nowrap;">Use Recommended</button>
+            </div>
+        </div>
+
+        <button id="btnOptimize" style="margin-top:18px;">Optimize split</button>
       </div>
     </div>
 
